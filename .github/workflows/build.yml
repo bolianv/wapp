@@ -46,5 +46,8 @@ jobs:
           echo "PATH=$HOME/.android/sdk/cmdline-tools/16.0/bin:$HOME/.android/sdk/platform-tools:$HOME/.android/sdk/build-tools/34.0.0:$PATH" >> $GITHUB_ENV
 
       # 3. 运行 make build 打包
-      - name: Build packages
+      - name: Build Packages
         run: make build URLS="${{ secrets.API_URL }}" JOBS=2 PLATFORM=apk > /dev/null
+
+      - name: Upload outputs to S3
+        run: mc cp -r outputs/ minio/wapp/outputs/
