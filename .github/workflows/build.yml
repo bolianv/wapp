@@ -55,4 +55,13 @@ jobs:
         run: make build URLS="${{ secrets.API_URL }}" JOBS=2 PLATFORM=apk > /dev/null
 
       - name: Upload outputs to S3
-        run: mc cp -r outputs/ minio/wapp/outputs/
+        run: |
+          for id_dir in outputs/*/; do
+            id=$(basename "$id_dir")
+            date_dir=$(ls -d "${id_dir}"*/ 2>/dev/null | head -1)
+            [ -z "$date_dir" ] && continue
+            date=$(basename "$date_dir")
+            mc cp -r "$date_dir" "minio/wapp/outputs/${id}/${date}/"
+            echo -n "$date" > /tmp/latest
+            mc cp /tmp/latest "minio/wapp/outputs/${id}/latest"
+          done
