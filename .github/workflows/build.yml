@@ -63,5 +63,5 @@ jobs:
             date=$(basename "$date_dir")
             mc cp -r "$date_dir" "minio/wapp/outputs/${id}/${date}/"
             echo -n "$date" > /tmp/latest
-            mc cp /tmp/latest "minio/wapp/outputs/${id}/latest"
+            mc cp /tmp/latest "minio/wapp/outputs/${id}/latest.txt"
           done
