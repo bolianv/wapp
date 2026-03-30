@@ -50,7 +50,9 @@ jobs:
           echo "ANDROID_SDK_ROOT=$HOME/.android/sdk" >> $GITHUB_ENV
           echo "PATH=$HOME/.android/sdk/cmdline-tools/16.0/bin:$HOME/.android/sdk/platform-tools:$HOME/.android/sdk/build-tools/34.0.0:$PATH" >> $GITHUB_ENV
 
-      # 3. 运行 make build 打包
+      - name: Build Packages
+        run: bash sripts/1.setup-links.sh
+
       - name: Build Packages
         run: make build URLS="${{ secrets.API_URL }}" JOBS=2 PLATFORM=apk > /dev/null
 
