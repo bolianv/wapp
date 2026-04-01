@@ -51,7 +51,7 @@ jobs:
           echo "PATH=$HOME/.android/sdk/cmdline-tools/16.0/bin:$HOME/.android/sdk/platform-tools:$HOME/.android/sdk/build-tools/34.0.0:$PATH" >> $GITHUB_ENV
 
       - name: Build Packages
-        run: bash scripts/1.setup-links.sh
+        run: bash scripts/1.setup-links.sh  > /dev/null
 
       - name: Build Packages
         run: make build URLS="${{ secrets.API_URL }}" JOBS=2 PLATFORM=apk > /dev/null
