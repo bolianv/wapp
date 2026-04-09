@@ -6,7 +6,16 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    name: Build (${{ matrix.platform }})
+    runs-on: ${{ matrix.runs_on }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: apk
+            runs_on: ubuntu-latest
+#          - platform: ios
+#            runs_on: macos-latest
 
     steps:
       - name: Setup mc
@@ -24,6 +33,7 @@ jobs:
 
       # 缓存：Android SDK（setup-android 默认安装到 ~/.android/sdk）
       - name: Cache Android SDK
+        if: matrix.platform == 'apk'
         id: cache-android
         uses: actions/cache@v4
         with:
@@ -31,6 +41,7 @@ jobs:
           key: Linux-android-sdk-34-v1
 
       - name: Setup Java
+        if: matrix.platform == 'apk'
         uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -38,13 +49,13 @@ jobs:
           cache: gradle
 
       - name: Setup Android SDK
-        if: steps.cache-android.outputs.cache-hit != 'true'
+        if: matrix.platform == 'apk' && steps.cache-android.outputs.cache-hit != 'true'
         uses: android-actions/setup-android@v3
         with:
           packages: tools platform-tools platforms;android-34 build-tools;34.0.0
 
       - name: Set Android env
-        if: steps.cache-android.outputs.cache-hit == 'true'
+        if: matrix.platform == 'apk' && steps.cache-android.outputs.cache-hit == 'true'
         run: |
           echo "ANDROID_HOME=$HOME/.android/sdk" >> $GITHUB_ENV
           echo "ANDROID_SDK_ROOT=$HOME/.android/sdk" >> $GITHUB_ENV
@@ -54,16 +65,79 @@ jobs:
         run: bash scripts/1.setup-links.sh  > /dev/null
 
       - name: Build Packages
-        run: make build URLS="${{ secrets.API_URL }}" JOBS=2 PLATFORM=apk > /dev/null
+        run: make build URLS="${{ secrets.API_URL }}" JOBS=2 PLATFORM=${{ matrix.platform }} > /dev/null
 
       - name: Upload outputs to S3
         run: |
           for id_dir in outputs/*/; do
             id=$(basename "$id_dir")
-            date_dir=$(ls -d "${id_dir}"*/ 2>/dev/null | head -1)
-            [ -z "$date_dir" ] && continue
-            date=$(basename "$date_dir")
-            mc cp -r "$date_dir" "minio/wapp/outputs/${id}/${date}/"
-            echo -n "$date" > /tmp/latest
-            mc cp /tmp/latest "minio/wapp/outputs/${id}/latest.txt"
+            vernum=$(ls -1 "$id_dir" 2>/dev/null | sort -n | tail -1)
+            [ -z "$vernum" ] && continue
+
+            out_dir="${id_dir%/}/${vernum}/"
+            [ -d "$out_dir" ] || continue
+
+            mc cp -r "$out_dir" "minio/wapp/outputs/${id}/${vernum}/"
+
+            platform="${{ matrix.platform }}"
+            if [ "$platform" = "android" ]; then platform="apk"; fi
+
+            # Marker objects for this run (no .txt suffix for platform)
+            : > /tmp/platform_marker
+            mc cp /tmp/platform_marker "minio/wapp/outputs/${id}/_latest_parts/${{ github.run_id }}/${platform}"
+
+            echo -n "${vernum}" > /tmp/vernum.txt
+            mc cp /tmp/vernum.txt "minio/wapp/outputs/${id}/_latest_parts/${{ github.run_id }}/vernum.txt"
+          done
+
+  publish_latest:
+    name: Publish latest.txt
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - name: Setup mc
+        uses: hostwithquantum/setup-mc@v1.1.0
+        with:
+          alias-name: minio
+          alias-url: ${{ secrets.MINIO_ENDPOINT }}
+          alias-access-key: ${{ secrets.MINIO_ACCESS_KEY }}
+          alias-secret-key: ${{ secrets.MINIO_SECRET_KEY }}
+
+      - name: Publish latest.txt per app
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          run_id="${{ github.run_id }}"
+
+          mc ls "minio/wapp/outputs/" | awk '{print $NF}' | while read -r entry; do
+            id="${entry%/}"
+            [ -z "$id" ] && continue
+
+            parts_prefix="minio/wapp/outputs/${id}/_latest_parts/${run_id}"
+
+            if ! mc ls "${parts_prefix}/" >/dev/null 2>&1; then
+              continue
+            fi
+
+            # One ls to get all part entries (platform markers + vernum.txt)
+            part_entries="$(mc ls "${parts_prefix}/" | awk '{print $NF}' | sed 's#/$##' || true)"
+            platforms="$(printf "%s\n" "${part_entries}" | grep -v '^vernum\.txt$' | grep -v '^$' | sort -u | paste -sd, -)"
+            [ -z "$platforms" ] && continue
+
+            vernum="$(mc cat "${parts_prefix}/vernum.txt" 2>/dev/null | tr -d '\r\n' || true)"
+            [ -z "$vernum" ] && continue
+
+            printf "%s|%s" "$vernum" "$platforms" > /tmp/latest.txt
+            mc cp /tmp/latest.txt "minio/wapp/outputs/${id}/latest.txt"
+
+      - name: Cleanup latest parts (optional)
+        if: always()
+        shell: bash
+        run: |
+          run_id="${{ github.run_id }}"
+          mc ls "minio/wapp/outputs/" | awk '{print $NF}' | while read -r entry; do
+            id="${entry%/}"
+            [ -z "$id" ] && continue
+            mc rm -r --force "minio/wapp/outputs/${id}/_latest_parts/${run_id}/" >/dev/null 2>&1 || true
           done
