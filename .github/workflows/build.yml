@@ -7,63 +7,67 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    env:
+      TZ: Asia/Shanghai
 
     steps:
-      - name: Setup mc
-        uses: hostwithquantum/setup-mc@v1.1.0
-        with:
-          alias-name: minio
-          alias-url: ${{ secrets.MINIO_ENDPOINT }}
-          alias-access-key: ${{ secrets.MINIO_ACCESS_KEY }}
-          alias-secret-key: ${{ secrets.MINIO_SECRET_KEY }}
-
-      - name: Download and extract code
-        run: |
-          mc cp minio/wapp/code/code.tar.gz /tmp/code.tar.gz
-          tar xzf /tmp/code.tar.gz -C ${{ github.workspace }}
-
-      # 缓存：Android SDK（setup-android 默认安装到 ~/.android/sdk）
-      - name: Cache Android SDK
-        id: cache-android
-        uses: actions/cache@v4
-        with:
-          path: ~/.android/sdk
-          key: Linux-android-sdk-34-v1
-
-      - name: Setup Java
-        uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: 17
-          cache: gradle
-
-      - name: Setup Android SDK
-        if: steps.cache-android.outputs.cache-hit != 'true'
-        uses: android-actions/setup-android@v3
-        with:
-          packages: tools platform-tools platforms;android-34 build-tools;34.0.0
-
-      - name: Set Android env
-        if: steps.cache-android.outputs.cache-hit == 'true'
-        run: |
-          echo "ANDROID_HOME=$HOME/.android/sdk" >> $GITHUB_ENV
-          echo "ANDROID_SDK_ROOT=$HOME/.android/sdk" >> $GITHUB_ENV
-          echo "PATH=$HOME/.android/sdk/cmdline-tools/16.0/bin:$HOME/.android/sdk/platform-tools:$HOME/.android/sdk/build-tools/34.0.0:$PATH" >> $GITHUB_ENV
-
-      - name: Build Packages
-        run: bash scripts/1.setup-links.sh  > /dev/null
-
-      - name: Build Packages
-        run: make build URLS="${{ secrets.API_URL }}" JOBS=2 PLATFORM=apk > /dev/null
-
-      - name: Upload outputs to S3
-        run: |
-          for id_dir in outputs/*/; do
-            id=$(basename "$id_dir")
-            date_dir=$(ls -d "${id_dir}"*/ 2>/dev/null | head -1)
-            [ -z "$date_dir" ] && continue
-            date=$(basename "$date_dir")
-            mc cp -r "$date_dir" "minio/wapp/outputs/${id}/${date}/"
-            echo -n "$date|apk" > /tmp/latest
-            mc cp /tmp/latest "minio/wapp/outputs/${id}/latest.txt"
-          done
+      - name: Check time
+        run: date
+#      - name: Setup mc
+#        uses: hostwithquantum/setup-mc@v1.1.0
+#        with:
+#          alias-name: minio
+#          alias-url: ${{ secrets.MINIO_ENDPOINT }}
+#          alias-access-key: ${{ secrets.MINIO_ACCESS_KEY }}
+#          alias-secret-key: ${{ secrets.MINIO_SECRET_KEY }}
+#
+#      - name: Download and extract code
+#        run: |
+#          mc cp minio/wapp/code/code.tar.gz /tmp/code.tar.gz
+#          tar xzf /tmp/code.tar.gz -C ${{ github.workspace }}
+#
+#      # 缓存：Android SDK（setup-android 默认安装到 ~/.android/sdk）
+#      - name: Cache Android SDK
+#        id: cache-android
+#        uses: actions/cache@v4
+#        with:
+#          path: ~/.android/sdk
+#          key: Linux-android-sdk-34-v1
+#
+#      - name: Setup Java
+#        uses: actions/setup-java@v4
+#        with:
+#          distribution: temurin
+#          java-version: 17
+#          cache: gradle
+#
+#      - name: Setup Android SDK
+#        if: steps.cache-android.outputs.cache-hit != 'true'
+#        uses: android-actions/setup-android@v3
+#        with:
+#          packages: tools platform-tools platforms;android-34 build-tools;34.0.0
+#
+#      - name: Set Android env
+#        if: steps.cache-android.outputs.cache-hit == 'true'
+#        run: |
+#          echo "ANDROID_HOME=$HOME/.android/sdk" >> $GITHUB_ENV
+#          echo "ANDROID_SDK_ROOT=$HOME/.android/sdk" >> $GITHUB_ENV
+#          echo "PATH=$HOME/.android/sdk/cmdline-tools/16.0/bin:$HOME/.android/sdk/platform-tools:$HOME/.android/sdk/build-tools/34.0.0:$PATH" >> $GITHUB_ENV
+#
+#      - name: Build Packages
+#        run: bash scripts/1.setup-links.sh  > /dev/null
+#
+#      - name: Build Packages
+#        run: make build URLS="${{ secrets.API_URL }}" JOBS=2 PLATFORM=apk > /dev/null
+#
+#      - name: Upload outputs to S3
+#        run: |
+#          for id_dir in outputs/*/; do
+#            id=$(basename "$id_dir")
+#            date_dir=$(ls -d "${id_dir}"*/ 2>/dev/null | head -1)
+#            [ -z "$date_dir" ] && continue
+#            date=$(basename "$date_dir")
+#            mc cp -r "$date_dir" "minio/wapp/outputs/${id}/${date}/"
+#            echo -n "$date|apk" > /tmp/latest
+#            mc cp /tmp/latest "minio/wapp/outputs/${id}/latest.txt"
+#          done
