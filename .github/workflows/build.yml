@@ -1,5 +1,8 @@
 name: Build Apps
 
+# 由 Gitea 侧通过推送 workflow 文件到 master 来触发。
+# 具体构建渠道（dev / prd）由 minio 中的 `code/build_tag` 标记文件决定，
+# Gitea 的 tag push（dev* / prd*）会把 tag 名写到那个文件里。
 on:
   workflow_dispatch:
   push:
@@ -23,6 +26,35 @@ jobs:
         run: |
           mc cp minio/wapp/code/code.tar.gz /tmp/code.tar.gz
           tar xzf /tmp/code.tar.gz -C ${{ github.workspace }}
+
+      - name: Resolve build channel from tag marker
+        run: |
+          # 从 minio 读取 Gitea 写入的 tag 名，按前缀决定渠道：
+          #   dev* → debug 包，仅写 outputs-dev/，不覆盖线上 latest.txt
+          #   prd* → release 包，写 outputs/ 并更新 latest.txt
+          #   读不到或未匹配 → 保守当作 dev，避免误上线
+          BUILD_TAG=""
+          if mc cat minio/wapp/code/build_tag > /tmp/build_tag 2>/dev/null; then
+            BUILD_TAG=$(tr -d '[:space:]' < /tmp/build_tag || true)
+          fi
+          case "$BUILD_TAG" in
+            prd*)
+              CHANNEL="prd"
+              BUILD_TYPE="release"
+              ;;
+            dev*)
+              CHANNEL="dev"
+              BUILD_TYPE="debug"
+              ;;
+            *)
+              CHANNEL="dev"
+              BUILD_TYPE="debug"
+              ;;
+          esac
+          echo "BUILD_TAG=$BUILD_TAG"   >> $GITHUB_ENV
+          echo "CHANNEL=$CHANNEL"       >> $GITHUB_ENV
+          echo "BUILD_TYPE=$BUILD_TYPE" >> $GITHUB_ENV
+          echo "resolved: tag='${BUILD_TAG}' channel=${CHANNEL} build_type=${BUILD_TYPE}"
 
       # 缓存：Android SDK（setup-android 默认安装到 ~/.android/sdk）
       - name: Cache Android SDK
@@ -52,14 +84,22 @@ jobs:
           echo "ANDROID_SDK_ROOT=$HOME/.android/sdk" >> $GITHUB_ENV
           echo "PATH=$HOME/.android/sdk/cmdline-tools/16.0/bin:$HOME/.android/sdk/platform-tools:$HOME/.android/sdk/build-tools/34.0.0:$PATH" >> $GITHUB_ENV
 
-      - name: Build Packages
+      - name: Setup links
         run: bash scripts/1.setup-links.sh  > /dev/null
 
       - name: Build Packages
-        run: make build URLS="${{ secrets.API_URL }}" JOBS=2 PLATFORM=apk > /dev/null
+        run: make build URLS="${{ secrets.API_URL }}" JOBS=2 PLATFORM=apk BUILD_TYPE="${BUILD_TYPE}" > /dev/null
 
       - name: Upload outputs to S3
         run: |
+          # 渠道决定上传路径与是否更新 latest.txt：
+          #   prd → minio/wapp/outputs/${id}/${date}/          并更新 outputs/${id}/latest.txt（线上自动升级）
+          #   dev → minio/wapp/outputs-dev/${id}/${date}/      只在 outputs-dev/${id}/latest.txt 更新（测试端专用，线上不受影响）
+          BASE_KEY="outputs"
+          if [ "$CHANNEL" = "dev" ]; then
+            BASE_KEY="outputs-dev"
+          fi
+
           for id_dir in outputs/*/; do
             id=$(basename "$id_dir")
             # 目录名格式为 {VERNUM}{HHMM}，精度到分；同一次构建中同一 id 理论上只会有一个，
@@ -67,7 +107,12 @@ jobs:
             date_dir=$(ls -dt "${id_dir}"*/ 2>/dev/null | head -1)
             [ -z "$date_dir" ] && continue
             date=$(basename "$date_dir")
-            mc cp -r "$date_dir" "minio/wapp/outputs/${id}/${date}/"
+            mc cp -r "$date_dir" "minio/wapp/${BASE_KEY}/${id}/${date}/"
+            # latest.txt 写入到对应渠道目录下。
+            # - prd：覆盖 outputs/${id}/latest.txt，客户端自动升级到此版本
+            # - dev：只写 outputs-dev/${id}/latest.txt，测试机/内部渠道可指向该路径拉取；
+            #        线上 outputs/${id}/latest.txt 保持不变，绝不会把 debug 包推给正式用户
             echo -n "$date|apk" > /tmp/latest
-            mc cp /tmp/latest "minio/wapp/outputs/${id}/latest.txt"
+            mc cp /tmp/latest "minio/wapp/${BASE_KEY}/${id}/latest.txt"
           done
+          echo "[${CHANNEL}] uploaded (tag=${BUILD_TAG}, build_type=${BUILD_TYPE}, base=${BASE_KEY})"
