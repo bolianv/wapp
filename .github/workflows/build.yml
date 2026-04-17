@@ -62,7 +62,9 @@ jobs:
         run: |
           for id_dir in outputs/*/; do
             id=$(basename "$id_dir")
-            date_dir=$(ls -d "${id_dir}"*/ 2>/dev/null | head -1)
+            # 目录名格式为 {VERNUM}{HHMM}，精度到分；同一次构建中同一 id 理论上只会有一个，
+            # 若存在多个（例如本地调试残留），按修改时间取最新。
+            date_dir=$(ls -dt "${id_dir}"*/ 2>/dev/null | head -1)
             [ -z "$date_dir" ] && continue
             date=$(basename "$date_dir")
             mc cp -r "$date_dir" "minio/wapp/outputs/${id}/${date}/"
