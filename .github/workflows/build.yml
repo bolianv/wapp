@@ -34,13 +34,13 @@ jobs:
           #   prd* → release 包，写 outputs/ 并更新 latest.txt
           #   读不到或未匹配 → 保守当作 dev，避免误上线
           BUILD_TAG=""
-          if mc cat minio/wapp/code/build_tag > /tmp/build_tag 2>/dev/null; then
-            echo $?
-            BUILD_TAG=$(tr -d '[:space:]' < /tmp/build_tag || true)
-          fi
+          #if mc cat minio/wapp/code/build_tag > /tmp/build_tag 2>/dev/null; then
+          #  echo $?
+          #  BUILD_TAG=$(tr -d '[:space:]' < /tmp/build_tag || true)
+          #fi
+          mc cp minio/wapp/code/build_tag /tmp/build_tag
           
           echo $?
-          mc cat minio/wapp/code/build_tag
           ls -al /tmp/build_tag
           cat /tmp/build_tag
           case "$BUILD_TAG" in
