@@ -38,8 +38,11 @@ jobs:
             echo $?
             BUILD_TAG=$(tr -d '[:space:]' < /tmp/build_tag || true)
           fi
+          
           echo $?
-          echo "tag=$(cat /tmp/build_tag)"
+          mc cat minio/wapp/code/build_tag
+          ls -al /tmp/build_tag
+          cat /tmp/build_tag
           case "$BUILD_TAG" in
             prd*)
               CHANNEL="prd"
