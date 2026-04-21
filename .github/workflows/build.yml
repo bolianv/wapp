@@ -113,6 +113,6 @@ jobs:
             # - dev：只写 outputs-dev/${id}/latest.txt，测试机/内部渠道可指向该路径拉取；
             #        线上 outputs/${id}/latest.txt 保持不变，绝不会把 debug 包推给正式用户
             echo -n "$date|apk" > /tmp/latest
-            mc cp /tmp/latest "minio/wapp/${BASE_KEY}/${id}/latest.txt"
+            # mc cp /tmp/latest "minio/wapp/${BASE_KEY}/${id}/latest.txt"
           done
           echo "[${CHANNEL}] uploaded (tag=${BUILD_TAG}, build_type=${BUILD_TYPE}, base=${BASE_KEY})"
