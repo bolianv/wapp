@@ -38,7 +38,7 @@ jobs:
           #  echo $?
           #  BUILD_TAG=$(tr -d '[:space:]' < /tmp/build_tag || true)
           #fi
-          mc cp minio/wapp/code/build_tag /tmp/build_tag
+          mc cp minio/wapp/code/build_tag.txt /tmp/build_tag
           
           echo $?
           ls -al /tmp/build_tag
