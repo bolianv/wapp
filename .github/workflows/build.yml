@@ -17,6 +17,7 @@ jobs:
       - name: Setup mc
         uses: hostwithquantum/setup-mc@v1.1.0
         with:
+          dl-url: https://dl.min.io/community/client/mc/release/linux-amd64/mc
           alias-name: minio
           alias-url: ${{ secrets.MINIO_ENDPOINT }}
           alias-access-key: ${{ secrets.MINIO_ACCESS_KEY }}
@@ -30,8 +31,8 @@ jobs:
       - name: Resolve build channel from tag marker
         run: |
           # 从 minio 读取 Gitea 写入的 tag 名，按前缀决定渠道：
-          #   dev* → debug 包，仅写 outputs-dev/，不覆盖线上 latest.txt
-          #   prd* → release 包，写 outputs/ 并更新 latest.txt
+          #   dev* → 打 debug + release 双包（仍仅写 outputs-dev/，不覆盖线上 latest.txt）
+          #   prd* → 仅 release，写 outputs/ 并更新 latest.txt
           #   读不到或未匹配 → 保守当作 dev，避免误上线
           BUILD_TAG=""
           if mc cat minio/wapp/code/build_tag.txt > /tmp/build_tag 2>/dev/null; then
@@ -87,19 +88,29 @@ jobs:
       - name: Setup links
         run: bash scripts/1.setup-links.sh  > /dev/null
 
-      - name: Build Packages
+      - name: Build Packages (dev, debug + release)
+        if: env.CHANNEL == 'dev'
+        run: |
+          set -e
+          # 两次 api-build 需共用 WEBVIEW_BUILD_TIME_SUFFIX，使两种 APK 落在同一 outputs/{id}/{date}/
+          export WEBVIEW_BUILD_TIME_SUFFIX=$(date +%H%M)
+          make build URLS="${{ secrets.API_URL }}" JOBS=2 PLATFORM=apk BUILD_TYPE=debug > /dev/null
+          make build URLS="${{ secrets.API_URL }}" JOBS=2 PLATFORM=apk BUILD_TYPE=release > /dev/null
+
+      - name: Build Packages (single)
+        if: env.CHANNEL == 'prd'
         run: make build URLS="${{ secrets.API_URL }}" JOBS=2 PLATFORM=apk BUILD_TYPE="${BUILD_TYPE}" > /dev/null
 
       - name: Upload outputs to S3
         run: |
-          # 渠道决定上传路径与是否更新 latest.txt：
-          #   prd → minio/wapp/outputs/${id}/${date}/          并更新 outputs/${id}/latest.txt（线上自动升级）
-          #   dev → minio/wapp/outputs-dev/${id}/${date}/      只在 outputs-dev/${id}/latest.txt 更新（测试端专用，线上不受影响）
+          # 渠道：dev → outputs-dev/；prd → outputs/
           BASE_KEY="outputs"
           if [ "$CHANNEL" = "dev" ]; then
             BASE_KEY="outputs-dev"
+            BINFO="debug+release"
+          else
+            BINFO="${BUILD_TYPE}"
           fi
-
           for id_dir in outputs/*/; do
             id=$(basename "$id_dir")
             # 目录名格式为 {VERNUM}{HHMM}，精度到分；同一次构建中同一 id 理论上只会有一个，
@@ -108,11 +119,7 @@ jobs:
             [ -z "$date_dir" ] && continue
             date=$(basename "$date_dir")
             mc cp -r "$date_dir" "minio/wapp/${BASE_KEY}/${id}/${date}/"
-            # latest.txt 写入到对应渠道目录下。
-            # - prd：覆盖 outputs/${id}/latest.txt，客户端自动升级到此版本
-            # - dev：只写 outputs-dev/${id}/latest.txt，测试机/内部渠道可指向该路径拉取；
-            #        线上 outputs/${id}/latest.txt 保持不变，绝不会把 debug 包推给正式用户
             echo -n "$date|apk" > /tmp/latest
-            # mc cp /tmp/latest "minio/wapp/${BASE_KEY}/${id}/latest.txt"
+            mc cp /tmp/latest "minio/wapp/${BASE_KEY}/${id}/latest.txt"
           done
-          echo "[${CHANNEL}] uploaded (tag=${BUILD_TAG}, build_type=${BUILD_TYPE}, base=${BASE_KEY})"
+          echo "[${CHANNEL}] uploaded (tag=${BUILD_TAG}, build_type=${BINFO}, base=${BASE_KEY})"
