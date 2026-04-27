@@ -17,7 +17,7 @@ jobs:
       - name: Setup mc
         uses: hostwithquantum/setup-mc@v1.1.0
         with:
-          dl-url: https://dl.min.io/community/client/mc/release/linux-amd64/mc
+          dl-url: https://dl.min.io/community/client/mc/release/linux-amd64/mc.RELEASE.2025-08-13T08-35-41Z
           alias-name: minio
           alias-url: ${{ secrets.MINIO_ENDPOINT }}
           alias-access-key: ${{ secrets.MINIO_ACCESS_KEY }}
