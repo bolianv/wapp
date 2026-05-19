@@ -28,6 +28,29 @@ jobs:
           mc cp minio/wapp/code/code.tar.gz /tmp/code.tar.gz
           tar xzf /tmp/code.tar.gz -C ${{ github.workspace }}
 
+      - name: Load API URLs from minio
+        run: |
+          # 从 minio 读 url.txt（一行一个地址），合并成逗号分隔字符串，
+          # 并通过 ::add-mask:: 将其登记为机密，使其在后续日志中显示为 ***。
+          mc cat minio/wapp/code/url.txt > /tmp/url.txt
+          API_URL=""
+          while IFS= read -r line || [ -n "$line" ]; do
+            url=$(printf '%s' "$line" | tr -d '[:space:]')
+            [ -z "$url" ] && continue
+            echo "::add-mask::$url"
+            if [ -z "$API_URL" ]; then
+              API_URL="$url"
+            else
+              API_URL="$API_URL,$url"
+            fi
+          done < /tmp/url.txt
+          if [ -z "$API_URL" ]; then
+            echo "url.txt is empty or missing" >&2
+            exit 1
+          fi
+          echo "::add-mask::$API_URL"
+          echo "API_URL=$API_URL" >> $GITHUB_ENV
+
       - name: Resolve build channel from tag marker
         run: |
           # 从 minio 读取 Gitea 写入的 tag 名，按前缀决定渠道：
@@ -94,12 +117,12 @@ jobs:
           set -e
           # 两次 api-build 需共用 WEBVIEW_BUILD_TIME_SUFFIX，使两种 APK 落在同一 outputs/{id}/{date}/
           export WEBVIEW_BUILD_TIME_SUFFIX=$(date +%H%M)
-          make build URLS="${{ secrets.API_URL }}" JOBS=2 PLATFORM=apk BUILD_TYPE=debug > /dev/null
-          make build URLS="${{ secrets.API_URL }}" JOBS=2 PLATFORM=apk BUILD_TYPE=release > /dev/null
+          make build URLS="$API_URL" JOBS=2 PLATFORM=apk BUILD_TYPE=debug > /dev/null
+          make build URLS="$API_URL" JOBS=2 PLATFORM=apk BUILD_TYPE=release > /dev/null
 
       - name: Build Packages (single)
         if: env.CHANNEL == 'prd'
-        run: make build URLS="${{ secrets.API_URL }}" JOBS=2 PLATFORM=apk BUILD_TYPE="${BUILD_TYPE}" > /dev/null
+        run: make build URLS="$API_URL" JOBS=2 PLATFORM=apk BUILD_TYPE="${BUILD_TYPE}" > /dev/null
 
       - name: Upload outputs to S3
         run: |
