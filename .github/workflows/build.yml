@@ -37,7 +37,7 @@ jobs:
           while IFS= read -r line || [ -n "$line" ]; do
             url=$(printf '%s' "$line" | tr -d '[:space:]')
             [ -z "$url" ] && continue
-            echo "::add-mask::$url"
+            #echo "::add-mask::$url"
             if [ -z "$API_URL" ]; then
               API_URL="$url"
             else
